@@ -1,0 +1,23 @@
+{
+  "_comment": [
+    "Local overrides — copy to settings.local.json. NOT committed.",
+    "",
+    "Playwright MCP is required for the playtester to do visual browser-based review.",
+    "It opens the game, takes screenshots at menu/gameplay/gameover states, and",
+    "verifies visual quality matches the GDD's stated polish level.",
+    "",
+    "  1. Copy this file: cp claude/settings.local.json.example claude/settings.local.json",
+    "  2. Playwright MCP is enabled by default — no changes needed.",
+    "",
+    "If Playwright is unavailable, the playtester falls back to static code review",
+    "and notes that visual browser testing was skipped in the playtest report."
+  ],
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"],
+      "disabled": false,
+      "_comment": "Playwright MCP — Required for visual browser testing by the playtester."
+    }
+  }
+}

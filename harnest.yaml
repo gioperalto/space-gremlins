@@ -1,0 +1,98 @@
+# harnest - Web Game Creation Chick
+# Drop this config + .claude/ directory into any project to launch a web game creation team.
+#
+# The game designer interviews the user first and picks the right tech stack.
+# Once they produce a game design document, the builder implements the full game.
+# The playtester reviews for bugs, GDD conformance, and deployment correctness.
+
+team:
+  name: webgame
+  description: "Web game creation team: game designer, builder, playtester"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Agent Definitions
+# Each agent has a role, model, count, and description.
+# Models: opus | sonnet | haiku
+# The agent_file references .claude/agents/<name>.md
+# ──────────────────────────────────────────────────────────────────────────────
+agents:
+  game_designer:
+    model: opus
+    count: 1
+    agent_file: game-designer.md
+    description: >
+      Interviews the user to capture their game vision, selects the optimal
+      tech stack based on complexity, and writes a game design document for
+      the builder. Runs before all other agents.
+
+  builder:
+    model: sonnet
+    count: 1
+    agent_file: builder.md
+    description: >
+      Implements the complete playable game from the game design document.
+      Scaffolds the chosen tech stack, handles responsive canvas and touch
+      events, and generates a GitHub Actions deployment workflow.
+    supplementary_tool: frontend_design
+
+  playtester:
+    model: sonnet
+    count: 1
+    agent_file: playtester.md
+    description: >
+      Reviews the built game for correctness, GDD conformance, responsive
+      design, and valid GitHub Pages deployment config. Signs off or returns
+      specific issues to the builder for revision.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Supplementary Tools (all optional)
+# Set enabled: false to disable any tool. The harness works without them.
+# ──────────────────────────────────────────────────────────────────────────────
+tools:
+  frontend_design:
+    enabled: true
+    type: plugin
+    description: "Frontend design plugin - used by builder for UI/visual implementation guidance"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Workflow Configuration
+# ──────────────────────────────────────────────────────────────────────────────
+workflow:
+  # Game designer must complete interview and GDD before other agents start
+  game_designer_first: true
+
+  # Playtester waits for builder completion before reviewing
+  playtester_on_build: true
+
+  # No worktrees — all agents work in the same project directory
+  use_worktrees: false
+
+  # Branch prefix (if git branching is used)
+  branch_prefix: "webgame/"
+
+  # Game is complete when playtester signs off
+  require_playtester_approval: true
+
+  # Maximum playtester → builder revision cycles before escalating to user
+  max_review_cycles: 3
+
+  # Playtester opens the game in a browser via Playwright to verify visual quality
+  playtester_visual_review: true
+
+  # Playwright MCP must be available for full visual review (falls back gracefully if not)
+  playwright_required: true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Available Tech Stacks
+# ──────────────────────────────────────────────────────────────────────────────
+stacks:
+  vanilla:
+    description: "Pure HTML/CSS/JS — no build step. Best for simple classics (Pong, Snake, Breakout)."
+  vite-vanilla:
+    description: "Vite + Vanilla JS. Good for puzzle, clicker, card games with moderate animation."
+  vite-phaser:
+    description: "Vite + Phaser 3. Best for platformers, shooters, top-down RPGs, physics, audio, tilemaps."
+  vite-pixijs:
+    description: "Vite + PixiJS v8. Best for sprite-heavy or particle-intensive games needing WebGL without physics overhead."
+  vite-three:
+    description: "Vite + Three.js. Use only for explicit 3D browser game requests."
