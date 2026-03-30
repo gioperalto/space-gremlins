@@ -32,7 +32,7 @@ class SocketClient {
 
     // Proxy all game events through the event system
     const EVENTS = [
-      'room:player_joined', 'room:player_left', 'room:player_disconnected',
+      'room:player_joined', 'room:player_left', 'room:player_disconnected', 'room:player_removed',
       'room:host_changed', 'lobby:settings_updated',
       'game:role_reveal', 'game:phase_changed', 'game:state', 'game:over', 'game:lobby_reset',
       'player:moved', 'player:killed',

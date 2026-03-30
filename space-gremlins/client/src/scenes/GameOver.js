@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { PALETTE, PLAYER_COLORS, BASE_W, BASE_H } from '../config.js'
 import { soundManager } from '../audio/SoundManager.js'
+import { uiText } from '../ui/textStyles.js'
 
 export class GameOver extends Phaser.Scene {
   constructor() { super('GameOver') }
@@ -36,9 +37,11 @@ export class GameOver extends Phaser.Scene {
     const winColor = isCrewWin ? PALETTE.primaryStr : PALETTE.dangerStr
     const winHex = isCrewWin ? PALETTE.primary : PALETTE.danger
 
-    const banner = this.add.text(cx, cy - 40, winnerText, {
-      fontFamily: 'monospace', fontSize: '20px', color: winColor,
-      stroke: '#000000', strokeThickness: 3,
+    const banner = uiText(this, cx, cy - 40, winnerText, 'title', {
+      fontSize: '20px',
+      color: winColor,
+      strokeThickness: 7,
+      letterSpacing: 1,
     }).setOrigin(0.5).setAlpha(0)
 
     // Animate banner in
@@ -54,22 +57,22 @@ export class GameOver extends Phaser.Scene {
       kill_win:     'Gremlins outnumber crewmates!',
       sabotage_win: 'Reactor meltdown!',
     }
-    this.add.text(cx, cy - 20, reasonLabels[this._reason] || '', {
-      fontFamily: 'monospace', fontSize: '8px', color: PALETTE.textDimStr,
+    uiText(this, cx, cy - 20, reasonLabels[this._reason] || '', 'body', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5)
 
     // Roles reveal list
     const roleEntries = Object.entries(this._roles)
     if (roleEntries.length > 0) {
-      this.add.text(cx, cy - 4, '— ROLES REVEALED —', {
-        fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textDimStr,
+      uiText(this, cx, cy - 4, 'ROLES REVEALED', 'small', {
+        color: PALETTE.textDimStr,
       }).setOrigin(0.5)
 
       roleEntries.slice(0, 8).forEach(([socketId, role], i) => {
         const col = role === 'gremlin' ? PALETTE.dangerStr : PALETTE.primaryStr
         const y = cy + 8 + i * 10
-        this.add.text(cx, y, `${role.toUpperCase()}`, {
-          fontFamily: 'monospace', fontSize: '7px', color: col,
+        uiText(this, cx, y, `${role.toUpperCase()}`, 'small', {
+          color: col,
         }).setOrigin(0.5)
       })
     }
@@ -108,14 +111,14 @@ export class GameOver extends Phaser.Scene {
       .on('pointerout', () => btn.setFillStyle(0x000000))
       .on('pointerdown', () => this._returnToLobby())
 
-    this.add.text(cx, btnY, 'BACK TO LOBBY', {
-      fontFamily: 'monospace', fontSize: '7px', color: Phaser.Display.Color.ValueToColor(winHex).rgba,
+    uiText(this, cx, btnY, 'BACK TO LOBBY', 'small', {
+      color: Phaser.Display.Color.ValueToColor(winHex).rgba,
     }).setOrigin(0.5)
 
     // Auto-return after 15 seconds
     this._countdown = 15
-    this._countdownText = this.add.text(cx, btnY + 12, `Auto-return in ${this._countdown}s`, {
-      fontFamily: 'monospace', fontSize: '5px', color: PALETTE.textDimStr,
+    this._countdownText = uiText(this, cx, btnY + 12, `Auto-return in ${this._countdown}s`, 'tiny', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5)
 
     this.time.addEvent({

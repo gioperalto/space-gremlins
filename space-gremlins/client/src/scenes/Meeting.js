@@ -2,6 +2,8 @@ import Phaser from 'phaser'
 import { PALETTE, PLAYER_COLORS, CONSTANTS, BASE_W, BASE_H } from '../config.js'
 import { socketClient } from '../network/SocketClient.js'
 import { soundManager } from '../audio/SoundManager.js'
+import { showTextPrompt } from '../ui/TextPrompt.js'
+import { uiText } from '../ui/textStyles.js'
 
 export class Meeting extends Phaser.Scene {
   constructor() { super('Meeting') }
@@ -62,13 +64,14 @@ export class Meeting extends Phaser.Scene {
       ? `${this._meetingData.callerName} REPORTED A BODY`
       : `${this._meetingData.callerName} CALLED EMERGENCY`
 
-    this.add.text(cx, 10, 'EMERGENCY MEETING', {
-      fontFamily: 'monospace', fontSize: '10px', color: headerColor,
-      stroke: '#000000', strokeThickness: 2,
+    uiText(this, cx, 10, 'EMERGENCY MEETING', 'heading', {
+      color: headerColor,
+      strokeThickness: 6,
+      letterSpacing: 1,
     }).setOrigin(0.5, 0).setDepth(1)
 
-    this.add.text(cx, 22, headerText, {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textDimStr,
+    uiText(this, cx, 24, headerText, 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5).setDepth(1)
 
     // Player portraits
@@ -76,8 +79,8 @@ export class Meeting extends Phaser.Scene {
     this._renderPortraits()
 
     // Chat panel
-    this._chatBox = this.add.text(4, 90, '', {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textStr,
+    this._chatBox = uiText(this, 4, 90, '', 'small', {
+      color: PALETTE.textStr,
       wordWrap: { width: BASE_W - 60, useAdvancedWrap: true },
       lineSpacing: 2,
     }).setDepth(1)
@@ -90,23 +93,29 @@ export class Meeting extends Phaser.Scene {
     const chatInputBg = this.add.rectangle(4, BASE_H - 18, BASE_W - 50, 14, 0x111122)
       .setStrokeStyle(1, PALETTE.primary).setOrigin(0, 0.5).setDepth(1)
       .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => {
-        const msg = window.prompt('Message:')
+      .on('pointerdown', async () => {
+        const msg = await showTextPrompt({
+          title: 'Meeting Chat',
+          label: 'Send a message to the crew.',
+          placeholder: 'Type your message',
+          maxLength: CONSTANTS.CHAT_MAX_LENGTH,
+          submitLabel: 'Send',
+        })
         if (msg?.trim()) socketClient.sendChat(msg.trim())
       })
 
-    this.add.text(8, BASE_H - 18, 'Tap to chat...', {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textDimStr,
+    uiText(this, 8, BASE_H - 18, 'Tap to chat...', 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0, 0.5).setDepth(1)
 
     // Timer text
-    this._timerText = this.add.text(cx, 31, '', {
-      fontFamily: 'monospace', fontSize: '7px', color: PALETTE.taskStr,
+    this._timerText = uiText(this, cx, 31, '', 'label', {
+      color: PALETTE.taskStr,
     }).setOrigin(0.5).setDepth(1)
 
     // Discussion label
-    this._phaseLabel = this.add.text(BASE_W - 4, 10, 'DISCUSS', {
-      fontFamily: 'monospace', fontSize: '7px', color: PALETTE.primaryStr,
+    this._phaseLabel = uiText(this, BASE_W - 6, 10, 'DISCUSS', 'small', {
+      color: PALETTE.primaryStr,
     }).setOrigin(1, 0).setDepth(1)
   }
 
@@ -124,22 +133,18 @@ export class Meeting extends Phaser.Scene {
 
       // X overlay if dead
       if (!player.alive) {
-        const xLine = this.add.text(px, py, 'X', {
-          fontFamily: 'monospace', fontSize: '12px', color: '#ff0000',
-        }).setOrigin(0.5)
+        const xLine = uiText(this, px, py, 'X', 'heading', { color: '#ff0000' }).setOrigin(0.5)
         this._portaitContainer.add(xLine)
       }
 
       // Vote marker (hidden initially)
-      const voteMarker = this.add.text(px, py + 14, '', {
-        fontFamily: 'monospace', fontSize: '5px', color: PALETTE.taskStr,
-      }).setOrigin(0.5)
+      const voteMarker = uiText(this, px, py + 14, '', 'tiny', { color: PALETTE.taskStr }).setOrigin(0.5)
       circle.setData('voteMarker', voteMarker)
       circle.setData('socketId', player.socketId)
 
       // Name
-      const nameText = this.add.text(px, py + 22, player.name.slice(0, 5), {
-        fontFamily: 'monospace', fontSize: '5px', color: PALETTE.textDimStr,
+      const nameText = uiText(this, px, py + 22, player.name.slice(0, 6), 'tiny', {
+        color: PALETTE.textDimStr,
       }).setOrigin(0.5)
 
       this._portaitContainer.add([circle, voteMarker, nameText])
@@ -183,15 +188,15 @@ export class Meeting extends Phaser.Scene {
 
     // Add skip vote option
     const cx = BASE_W / 2
-    this.add.text(cx, 80, 'Vote or SKIP:', {
-      fontFamily: 'monospace', fontSize: '7px', color: PALETTE.textDimStr,
+    uiText(this, cx, 80, 'Vote or skip:', 'label', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5).setDepth(1)
 
     const skipBtn = this.add.rectangle(BASE_W - 30, BASE_H - 18, 44, 12, 0x000000)
       .setStrokeStyle(1, PALETTE.textDim).setInteractive({ useHandCursor: true }).setDepth(1)
       .on('pointerdown', () => this._castVote('skip'))
-    this.add.text(BASE_W - 30, BASE_H - 18, 'SKIP', {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textDimStr,
+    uiText(this, BASE_W - 30, BASE_H - 18, 'SKIP', 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5).setDepth(1)
 
     this._addChatMessage({ name: 'System', message: '--- Voting phase started ---', system: true }, false)
@@ -240,27 +245,26 @@ export class Meeting extends Phaser.Scene {
       soundManager.ejection()
       this.cameras.main.shake(300, 0.012)
 
-      this.add.text(cx, cy - 25, 'EJECTED!', {
-        fontFamily: 'monospace', fontSize: '16px', color: PALETTE.dangerStr,
-        stroke: '#000000', strokeThickness: 3,
+      uiText(this, cx, cy - 25, 'EJECTED!', 'title', {
+        color: PALETTE.dangerStr,
       }).setOrigin(0.5).setDepth(6)
 
-      this.add.text(cx, cy, result.ejectedName || '???', {
-        fontFamily: 'monospace', fontSize: '12px', color: PALETTE.textStr,
+      uiText(this, cx, cy, result.ejectedName || '???', 'heading', {
+        color: PALETTE.textStr,
       }).setOrigin(0.5).setDepth(6)
 
       if (result.ejectedRole) {
         const roleColor = result.ejectedRole === 'gremlin' ? PALETTE.dangerStr : PALETTE.primaryStr
-        this.add.text(cx, cy + 16, `was a ${result.ejectedRole.toUpperCase()}`, {
-          fontFamily: 'monospace', fontSize: '9px', color: roleColor,
+        uiText(this, cx, cy + 16, `was a ${result.ejectedRole.toUpperCase()}`, 'body', {
+          color: roleColor,
         }).setOrigin(0.5).setDepth(6)
       }
     } else {
-      this.add.text(cx, cy, 'NO EJECTION', {
-        fontFamily: 'monospace', fontSize: '14px', color: PALETTE.textDimStr,
+      uiText(this, cx, cy, 'NO EJECTION', 'heading', {
+        color: PALETTE.textDimStr,
       }).setOrigin(0.5).setDepth(6)
-      this.add.text(cx, cy + 14, 'Tie or skip majority', {
-        fontFamily: 'monospace', fontSize: '8px', color: PALETTE.textDimStr,
+      uiText(this, cx, cy + 14, 'Tie or skip majority', 'body', {
+        color: PALETTE.textDimStr,
       }).setOrigin(0.5).setDepth(6)
     }
 

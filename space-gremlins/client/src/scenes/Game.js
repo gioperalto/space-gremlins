@@ -6,6 +6,15 @@ import {
 import { socketClient } from '../network/SocketClient.js'
 import { soundManager } from '../audio/SoundManager.js'
 import { TaskUI } from '../tasks/TaskUI.js'
+import { uiText } from '../ui/textStyles.js'
+
+// Sabotage fix locations (world coordinates)
+const SABOTAGE_FIX_LOCATIONS = {
+  lights_out:       { x: 460, y: 265, room: 'Storage',  label: 'Electrical Panel' },
+  comms_disruption: { x: 290, y: 60,  room: 'Bridge',   label: 'Comms Array' },
+  reactor_meltdown_a: { x: 510, y: 165, room: 'Reactor', label: 'Hold Button A' },
+  reactor_meltdown_b: { x: 560, y: 165, room: 'Reactor', label: 'Hold Button B' },
+}
 
 export class Game extends Phaser.Scene {
   constructor() { super('Game') }
@@ -16,6 +25,8 @@ export class Game extends Phaser.Scene {
     this._gameSettings = data.settings || {}
     this._myColor = data.myColor || PLAYER_COLORS[0]
     this._myName = data.myName || 'Player'
+    // Normalize gremlin allies to { socketId, name, color } objects
+    this._gremlinAllyIds = this._gremlinAllies.map(a => (typeof a === 'object' ? a.socketId : a))
   }
 
   create() {
@@ -42,6 +53,12 @@ export class Game extends Phaser.Scene {
     this._moving = false
     this._moveTarget = null
     this._killCooldownRemaining = this._gameSettings.killCooldown || 25
+    this._emergencyButtonUses = 3
+    this._nearbySabotageFixId = null   // 'lights_out' | 'comms_disruption' | 'reactor_meltdown'
+    this._reactorHolding = false
+    this._reactorHoldBtn = null
+    this._sabotageTimerRemaining = 0
+    this._commsDisrupted = false
 
     // ─── Camera ──────────────────────────────────────────────────────────────
     this.cameras.main.setBackgroundColor(PALETTE.bgDark)
@@ -52,6 +69,7 @@ export class Game extends Phaser.Scene {
     this._createVents()
     this._createTaskStations()
     this._createEmergencyButton()
+    this._createSabotageFixPanels()
     this._createHUD()
     this._createFogOfWar()
     this._createPlayerSprite(socketClient.id, this._myColor, this._myName, true)
@@ -69,6 +87,7 @@ export class Game extends Phaser.Scene {
       socketClient.on('game:over', (d) => this._onGameOver(d)),
       socketClient.on('sabotage:triggered', (d) => this._onSabotageTrigger(d)),
       socketClient.on('sabotage:fixed', (d) => this._onSabotageFixed(d)),
+      socketClient.on('sabotage:fix_progress', (d) => this._onSabotageFixProgress(d)),
       socketClient.on('vent:teleport', (d) => this._onVentTeleport(d)),
       socketClient.on('game:lobby_reset', () => {
         this._cleanup()
@@ -139,8 +158,8 @@ export class Game extends Phaser.Scene {
       gfx.strokeRect(room.x, room.y, room.w, room.h)
 
       // Room label
-      this.add.text(room.x + room.w / 2, room.y + 8, room.name.toUpperCase(), {
-        fontFamily: 'monospace', fontSize: '5px', color: PALETTE.textDimStr,
+      uiText(this, room.x + room.w / 2, room.y + 8, room.name.toUpperCase(), 'tiny', {
+        color: PALETTE.textDimStr,
       }).setOrigin(0.5, 0).setDepth(CONSTANTS.DEPTH_FLOOR + 1)
     }
 
@@ -184,8 +203,8 @@ export class Game extends Phaser.Scene {
       g.lineStyle(1, PALETTE.task, 0.5)
       g.strokeRect(station.x - 9, station.y - 9, 18, 18)
 
-      const label = this.add.text(station.x, station.y + 12, station.label, {
-        fontFamily: 'monospace', fontSize: '5px', color: PALETTE.taskStr,
+      const label = uiText(this, station.x, station.y + 12, station.label, 'tiny', {
+        color: PALETTE.taskStr,
       }).setOrigin(0.5).setDepth(CONSTANTS.DEPTH_TASK_STATIONS)
 
       this._taskStationObjects[station.id] = { station, gfx: g, label }
@@ -202,13 +221,57 @@ export class Game extends Phaser.Scene {
     g.fillStyle(0xffffff, 0.25)
     g.fillEllipse(eb.x - 3, eb.y - 3, 7, 4)
 
-    this.add.text(eb.x, eb.y + 16, '!! EMERGENCY !!', {
-      fontFamily: 'monospace', fontSize: '5px', color: PALETTE.dangerStr,
+    uiText(this, eb.x, eb.y + 16, 'EMERGENCY', 'tiny', {
+      color: PALETTE.dangerStr,
     }).setOrigin(0.5).setDepth(CONSTANTS.DEPTH_TASK_STATIONS)
 
     this._emergencyHitbox = this.add.rectangle(eb.x, eb.y, 30, 30, 0, 0)
       .setInteractive({ useHandCursor: true })
       .setDepth(CONSTANTS.DEPTH_TASK_STATIONS)
+  }
+
+  _createSabotageFixPanels() {
+    // Render fix panels in the world (always present but dimmed when no sabotage)
+    this._sabotageFixObjects = {}
+
+    const createPanel = (key, loc, colorHex, colorStr) => {
+      const g = this.add.graphics().setDepth(CONSTANTS.DEPTH_TASK_STATIONS)
+      g.fillStyle(colorHex, 0.15)
+      g.fillRect(loc.x - 10, loc.y - 10, 20, 20)
+      g.lineStyle(1, colorHex, 0.3)
+      g.strokeRect(loc.x - 10, loc.y - 10, 20, 20)
+
+      const label = uiText(this, loc.x, loc.y + 14, loc.label, 'tiny', {
+        color: colorStr,
+      }).setOrigin(0.5).setDepth(CONSTANTS.DEPTH_TASK_STATIONS).setAlpha(0.3)
+
+      const hitbox = this.add.rectangle(loc.x, loc.y, 28, 28, 0, 0)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(CONSTANTS.DEPTH_TASK_STATIONS)
+        .setData('fixKey', key)
+
+      this._sabotageFixObjects[key] = { loc, gfx: g, label, hitbox, active: false }
+    }
+
+    createPanel('lights_out',       SABOTAGE_FIX_LOCATIONS.lights_out,         0xff8800, '#ff8800')
+    createPanel('comms_disruption', SABOTAGE_FIX_LOCATIONS.comms_disruption,   0x00e5ff, '#00e5ff')
+    createPanel('reactor_meltdown_a', SABOTAGE_FIX_LOCATIONS.reactor_meltdown_a, 0xff2222, '#ff2222')
+    createPanel('reactor_meltdown_b', SABOTAGE_FIX_LOCATIONS.reactor_meltdown_b, 0xff2222, '#ff2222')
+  }
+
+  _updateSabotageFixPanels() {
+    // Brighten / dim panels based on active sabotage
+    const activeSabType = this._activeSabotage?.type || null
+
+    for (const [key, obj] of Object.entries(this._sabotageFixObjects)) {
+      const isRelevant = (key === activeSabType) ||
+        (activeSabType === 'reactor_meltdown' && key.startsWith('reactor_meltdown'))
+
+      const alpha = isRelevant ? 1 : 0.15
+      obj.gfx.setAlpha(alpha)
+      obj.label.setAlpha(isRelevant ? 1 : 0.3)
+      obj.active = isRelevant
+    }
   }
 
   _createFogOfWar() {
@@ -252,12 +315,21 @@ export class Game extends Phaser.Scene {
       .setDepth(isLocal ? CONSTANTS.DEPTH_LOCAL_PLAYER : CONSTANTS.DEPTH_PLAYERS)
       .setScale(1.2)
 
-    const nameText = this.add.text(0, 0, name, {
-      fontFamily: 'monospace', fontSize: '5px', color: Phaser.Display.Color.ValueToColor(colorObj.hex).rgba,
-      stroke: '#000000', strokeThickness: 1,
+    const nameText = uiText(this, 0, 0, name, 'tiny', {
+      color: Phaser.Display.Color.ValueToColor(colorObj.hex).rgba,
+      strokeThickness: 4,
     }).setOrigin(0.5, 1).setDepth(CONSTANTS.DEPTH_LOCAL_PLAYER)
 
-    this._players.set(socketId, { sprite, nameText, data: { socketId, x: 320, y: 180, alive: true } })
+    // Gremlin ally indicator: small red diamond above name for gremlin allies
+    let allyIndicator = null
+    const isAlly = this._role === 'gremlin' && this._gremlinAllyIds.includes(socketId)
+    if (isAlly) {
+      allyIndicator = this.add.graphics().setDepth(CONSTANTS.DEPTH_LOCAL_PLAYER + 1)
+      allyIndicator.fillStyle(PALETTE.danger, 0.8)
+      allyIndicator.fillTriangle(-3, 0, 3, 0, 0, -5)
+    }
+
+    this._players.set(socketId, { sprite, nameText, allyIndicator, data: { socketId, x: 320, y: 180, alive: true } })
 
     if (isLocal) {
       this._mySprite = sprite
@@ -296,43 +368,61 @@ export class Game extends Phaser.Scene {
       .setScrollFactor(0).setDepth(hudDepth).setOrigin(0.5, 0)
     this._taskBarFill = this.add.rectangle(10, 4, 0, CONSTANTS.TASKBAR_H, PALETTE.primary)
       .setScrollFactor(0).setDepth(hudDepth).setOrigin(0, 0)
-    this._taskBarLabel = this.add.text(BASE_W - 12, 7, 'TASKS 0%', {
-      fontFamily: 'monospace', fontSize: '5px', color: PALETTE.primaryStr,
+    this._taskBarLabel = uiText(this, BASE_W - 12, 7, 'TASKS 0%', 'tiny', {
+      color: PALETTE.primaryStr,
     }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(hudDepth)
 
     // Role indicator
     const roleColor = this._role === 'gremlin' ? PALETTE.dangerStr : PALETTE.primaryStr
-    this._roleText = this.add.text(12, 7, this._role.toUpperCase(), {
-      fontFamily: 'monospace', fontSize: '6px', color: roleColor,
-      stroke: '#000000', strokeThickness: 1,
+    this._roleText = uiText(this, 12, 7, this._role.toUpperCase(), 'small', {
+      color: roleColor,
+      strokeThickness: 4,
     }).setScrollFactor(0).setDepth(hudDepth).setOrigin(0, 0.5)
 
     // Kill/sabotage buttons (gremlin only)
     if (this._role === 'gremlin') {
       this._killBtn = this._createHUDButton(BASE_W - 28, BASE_H - 28, 'KILL', PALETTE.danger, () => this._tryKill())
       this._sabotageBtn = this._createHUDButton(BASE_W - 28, BASE_H - 10, 'SABO', 0xff8800, () => this._showSabotageMenu())
-      this._killCooldownText = this.add.text(BASE_W - 50, BASE_H - 28, `${this._killCooldownRemaining}s`, {
-        fontFamily: 'monospace', fontSize: '6px', color: PALETTE.dangerStr,
+      this._killCooldownText = uiText(this, BASE_W - 50, BASE_H - 28, `${this._killCooldownRemaining}s`, 'small', {
+        color: PALETTE.dangerStr,
       }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(hudDepth)
     }
 
     // Task list (bottom left)
-    this._taskListText = this.add.text(4, BASE_H - 4, '', {
-      fontFamily: 'monospace', fontSize: '5px', color: PALETTE.textDimStr,
+    this._taskListText = uiText(this, 4, BASE_H - 4, '', 'tiny', {
+      color: PALETTE.textDimStr,
       lineSpacing: 2,
     }).setOrigin(0, 1).setScrollFactor(0).setDepth(hudDepth)
 
     // Interaction prompt
-    this._interactPrompt = this.add.text(BASE_W / 2, BASE_H - 14, '', {
-      fontFamily: 'monospace', fontSize: '7px', color: PALETTE.taskStr,
-      stroke: '#000000', strokeThickness: 2,
+    this._interactPrompt = uiText(this, BASE_W / 2, BASE_H - 14, '', 'body', {
+      color: PALETTE.taskStr,
+      strokeThickness: 5,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(hudDepth)
 
-    // Sabotage warning
-    this._sabotageWarning = this.add.text(BASE_W / 2, 20, '', {
-      fontFamily: 'monospace', fontSize: '8px', color: PALETTE.dangerStr,
-      stroke: '#000000', strokeThickness: 2,
+    // Sabotage warning + timer
+    this._sabotageWarning = uiText(this, BASE_W / 2, 20, '', 'body', {
+      color: PALETTE.dangerStr,
+      strokeThickness: 5,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(hudDepth)
+
+    this._sabotageTimer = uiText(this, BASE_W / 2, 30, '', 'heading', {
+      color: PALETTE.dangerStr,
+      strokeThickness: 6,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(hudDepth)
+
+    // Emergency button uses (bottom right near emergency)
+    this._emergencyUsesText = uiText(this, BASE_W - 4, BASE_H - 48, '', 'tiny', {
+      color: PALETTE.textDimStr,
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(hudDepth)
+
+    // Comms disruption overlay (hidden by default)
+    this._commsOverlay = this.add.rectangle(BASE_W / 2, BASE_H / 2, BASE_W, BASE_H, 0x000022, 0)
+      .setScrollFactor(0).setDepth(hudDepth - 1).setOrigin(0.5)
+    this._commsText = uiText(this, BASE_W / 2, BASE_H / 2, 'COMMS DISRUPTED', 'heading', {
+      color: PALETTE.dangerStr,
+      strokeThickness: 6,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(hudDepth).setAlpha(0)
   }
 
   _createHUDButton(x, y, text, color, callback) {
@@ -344,8 +434,8 @@ export class Game extends Phaser.Scene {
       .on('pointerout', () => bg.setFillStyle(0x000000))
       .on('pointerdown', callback)
 
-    this.add.text(x, y, text, {
-      fontFamily: 'monospace', fontSize: '6px', color: Phaser.Display.Color.ValueToColor(color).rgba,
+    uiText(this, x, y, text, 'small', {
+      color: Phaser.Display.Color.ValueToColor(color).rgba,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(CONSTANTS.DEPTH_HUD)
 
     return bg
@@ -375,16 +465,31 @@ export class Game extends Phaser.Scene {
     }
   }
 
+  _updateEmergencyUsesHUD() {
+    if (this._emergencyUsesText) {
+      this._emergencyUsesText.setText(
+        `Emergency: ${this._emergencyButtonUses} use${this._emergencyButtonUses !== 1 ? 's' : ''} left`
+      )
+    }
+  }
+
   _updateInteractPrompt() {
     let hint = ''
     if (this._nearbyTaskId && !this._myCompletedTasks.has(this._nearbyTaskId)) {
-      hint = '[TAP] Do Task'
+      hint = 'Tap to do task'
     } else if (this._nearbyBodyId) {
-      hint = '[TAP] Report Body'
+      hint = 'Tap to report body'
     } else if (this._nearbyEmergency) {
-      hint = '[TAP] Emergency!'
+      hint = 'Tap emergency button'
     } else if (this._nearbyVentId && this._role === 'gremlin') {
-      hint = '[TAP] Enter Vent'
+      hint = 'Tap to enter vent'
+    } else if (this._nearbySabotageFixId && this._activeSabotage) {
+      const type = this._activeSabotage.type
+      if (type === 'reactor_meltdown') {
+        hint = 'Hold to stabilize reactor'
+      } else {
+        hint = 'Tap to fix sabotage'
+      }
     }
     this._interactPrompt.setText(hint)
   }
@@ -402,6 +507,19 @@ export class Game extends Phaser.Scene {
     if (this._nearbyVentId && this._role === 'gremlin') {
       const d = this._distanceTo(wx, wy, this._getVentPos(this._nearbyVentId))
       if (d < 30) { this._useVent(); return }
+    }
+
+    // Check sabotage fix interaction
+    if (this._nearbySabotageFixId && this._activeSabotage) {
+      const type = this._activeSabotage.type
+      if (type === 'reactor_meltdown') {
+        // Reactor uses hold buttons (pointerdown/up events on the hold buttons)
+        // Handled separately — moving towards reactor is enough, hold buttons appear
+        return
+      } else if (type === this._nearbySabotageFixId) {
+        this._fixSabotage(type)
+        return
+      }
     }
 
     // Check task interaction
@@ -514,6 +632,86 @@ export class Game extends Phaser.Scene {
     }
   }
 
+  async _fixSabotage(type) {
+    const result = await socketClient.fixSabotage(type)
+    if (!result?.ok && !result?.partial) {
+      this._showHint(result?.reason || 'Cannot fix', PALETTE.dangerStr)
+    }
+  }
+
+  _showReactorHoldButtons() {
+    if (this._reactorHoldPanel) return  // already shown
+    const cx = BASE_W / 2, cy = BASE_H / 2
+
+    this._reactorHoldPanel = this.add.container(0, 0).setScrollFactor(0).setDepth(CONSTANTS.DEPTH_MODAL)
+
+    const bg = this.add.rectangle(cx, cy, 160, 80, 0x110000, 0.95)
+      .setStrokeStyle(2, PALETTE.danger)
+    this._reactorHoldPanel.add(bg)
+    this._reactorHoldPanel.add(uiText(this, cx, cy - 32, 'REACTOR MELTDOWN', 'heading', {
+      color: PALETTE.dangerStr,
+    }).setOrigin(0.5))
+    this._reactorHoldPanel.add(uiText(this, cx, cy - 20, 'Two players must hold simultaneously', 'tiny', {
+      color: PALETTE.textDimStr,
+    }).setOrigin(0.5))
+
+    // Button A
+    const btnA = this.add.rectangle(cx - 30, cy, 50, 24, 0x220000)
+      .setStrokeStyle(2, PALETTE.danger).setInteractive({ useHandCursor: true })
+    const btnATxt = uiText(this, cx - 30, cy, 'HOLD A', 'small', { color: PALETTE.dangerStr }).setOrigin(0.5)
+
+    // Button B
+    const btnB = this.add.rectangle(cx + 30, cy, 50, 24, 0x220000)
+      .setStrokeStyle(2, PALETTE.danger).setInteractive({ useHandCursor: true })
+    const btnBTxt = uiText(this, cx + 30, cy, 'HOLD B', 'small', { color: PALETTE.dangerStr }).setOrigin(0.5)
+
+    const startHold = async () => {
+      if (!this._reactorHolding) {
+        this._reactorHolding = true
+        btnA.setFillStyle(PALETTE.danger, 0.4)
+        btnB.setFillStyle(PALETTE.danger, 0.4)
+        await socketClient.fixSabotage('reactor_meltdown')
+      }
+    }
+    const stopHold = () => {
+      if (this._reactorHolding) {
+        this._reactorHolding = false
+        btnA.setFillStyle(0x220000)
+        btnB.setFillStyle(0x220000)
+        socketClient.releaseReactor()
+      }
+    }
+
+    btnA.on('pointerdown', startHold).on('pointerup', stopHold).on('pointerout', stopHold)
+    btnB.on('pointerdown', startHold).on('pointerup', stopHold).on('pointerout', stopHold)
+
+    const closeBtn = this.add.rectangle(cx, cy + 30, 60, 12, 0x000000)
+      .setStrokeStyle(1, 0x444444).setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => {
+        stopHold()
+        this._hideReactorHoldButtons()
+      })
+
+    this._reactorHoldPanel.add([btnA, btnATxt, btnB, btnBTxt, closeBtn])
+    this._reactorHoldPanel.add(uiText(this, cx, cy + 30, 'CLOSE', 'tiny', { color: PALETTE.textDimStr }).setOrigin(0.5))
+
+    this._reactorHoldBtn = { btnA, btnB }
+  }
+
+  _hideReactorHoldButtons() {
+    if (this._reactorHoldPanel) {
+      this._reactorHoldPanel.destroy()
+      this._reactorHoldPanel = null
+      this._reactorHoldBtn = null
+    }
+  }
+
+  _updateReactorHoldButtons(show) {
+    if (!show && this._reactorHoldPanel) {
+      this._hideReactorHoldButtons()
+    }
+  }
+
   _showVentMenu() {
     const vent = VENTS.find(v => v.id === this._inVentId)
     if (!vent) return
@@ -525,9 +723,7 @@ export class Game extends Phaser.Scene {
     const bg = this.add.rectangle(cx, cy, 120, 50, 0x000000, 0.9)
       .setStrokeStyle(1, 0x445566)
     panel.add(bg)
-    panel.add(this.add.text(cx, cy - 18, 'VENT', {
-      fontFamily: 'monospace', fontSize: '9px', color: '#445566',
-    }).setOrigin(0.5))
+    panel.add(uiText(this, cx, cy - 18, 'VENT', 'heading', { color: '#9cb5d6' }).setOrigin(0.5))
 
     vent.links.forEach((linkId, i) => {
       const target = VENTS.find(v => v.id === linkId)
@@ -536,25 +732,23 @@ export class Game extends Phaser.Scene {
         .setStrokeStyle(1, 0x445566).setInteractive({ useHandCursor: true })
         .on('pointerdown', async () => {
           panel.destroy()
+          // Tell server we're exiting via this vent ID to destination
+          const result = await socketClient.useVent(this._inVentId, 'exit')
           const myEntry = this._players.get(socketClient.id)
           if (myEntry) { myEntry.data.x = target.x; myEntry.data.y = target.y }
-          socketClient.sendMove(target.x, target.y)
+          if (myEntry?.sprite) { myEntry.sprite.setX(target.x); myEntry.sprite.setY(target.y) }
           soundManager.ventExit()
           this._inVent = false
         })
       panel.add(btn)
-      panel.add(this.add.text(cx, cy - 4 + i * 16, `Go to ${target.room}`, {
-        fontFamily: 'monospace', fontSize: '6px', color: '#667799',
-      }).setOrigin(0.5))
+      panel.add(uiText(this, cx, cy - 4 + i * 16, `Go to ${target.room}`, 'small', { color: '#d7e4f6' }).setOrigin(0.5))
     })
 
     const exitBtn = this.add.rectangle(cx, cy + 18, 60, 10, 0x000000)
       .setStrokeStyle(1, 0x444444).setInteractive({ useHandCursor: true })
       .on('pointerdown', () => { panel.destroy(); this._inVent = false })
     panel.add(exitBtn)
-    panel.add(this.add.text(cx, cy + 18, 'EXIT VENT', {
-      fontFamily: 'monospace', fontSize: '5px', color: '#666666',
-    }).setOrigin(0.5))
+    panel.add(uiText(this, cx, cy + 18, 'EXIT VENT', 'tiny', { color: PALETTE.textDimStr }).setOrigin(0.5))
   }
 
   _showSabotageMenu() {
@@ -565,9 +759,7 @@ export class Game extends Phaser.Scene {
     const bg = this.add.rectangle(cx, cy, 130, 70, 0x000000, 0.9)
       .setStrokeStyle(1, PALETTE.danger)
     panel.add(bg)
-    panel.add(this.add.text(cx, cy - 28, 'SABOTAGE', {
-      fontFamily: 'monospace', fontSize: '9px', color: PALETTE.dangerStr,
-    }).setOrigin(0.5))
+    panel.add(uiText(this, cx, cy - 28, 'SABOTAGE', 'heading', { color: PALETTE.dangerStr }).setOrigin(0.5))
 
     const options = [
       { type: 'lights_out', label: 'Lights Out' },
@@ -584,18 +776,14 @@ export class Game extends Phaser.Scene {
           if (!result?.ok) this._showHint(result?.reason || 'Failed', PALETTE.dangerStr)
         })
       panel.add(btn)
-      panel.add(this.add.text(cx, y, opt.label, {
-        fontFamily: 'monospace', fontSize: '6px', color: PALETTE.dangerStr,
-      }).setOrigin(0.5))
+      panel.add(uiText(this, cx, y, opt.label, 'small', { color: PALETTE.dangerStr }).setOrigin(0.5))
     })
 
     const cancel = this.add.rectangle(cx, cy + 28, 60, 10, 0x000000)
       .setStrokeStyle(1, 0x444444).setInteractive({ useHandCursor: true })
       .on('pointerdown', () => panel.destroy())
     panel.add(cancel)
-    panel.add(this.add.text(cx, cy + 28, 'CANCEL', {
-      fontFamily: 'monospace', fontSize: '5px', color: '#666666',
-    }).setOrigin(0.5))
+    panel.add(uiText(this, cx, cy + 28, 'CANCEL', 'tiny', { color: PALETTE.textDimStr }).setOrigin(0.5))
   }
 
   // ─── Socket event handlers ────────────────────────────────────────────────────
@@ -609,6 +797,10 @@ export class Game extends Phaser.Scene {
     if (state.sabotage !== undefined) {
       this._activeSabotage = state.sabotage
       this._updateSabotageHUD()
+    }
+    if (state.emergencyButtonUses != null) {
+      this._emergencyButtonUses = state.emergencyButtonUses
+      this._updateEmergencyUsesHUD()
     }
 
     for (const playerData of (state.players || [])) {
@@ -693,7 +885,19 @@ export class Game extends Phaser.Scene {
       clearInterval(this._sabotageSoundInterval)
       this._sabotageSoundInterval = null
     }
+    // Stop holding reactor if it was fixed
+    if (type === 'reactor_meltdown') {
+      this._reactorHolding = false
+      this._updateReactorHoldButtons(false)
+    }
     this._updateSabotageHUD()
+  }
+
+  _onSabotageFixProgress({ type, holders }) {
+    // Update reactor button visual to show how many are holding
+    if (type === 'reactor_meltdown') {
+      this._showHint(`Reactor: ${holders}/2 holding`, PALETTE.dangerStr)
+    }
   }
 
   _onVentTeleport({ ventId, action }) {
@@ -701,16 +905,55 @@ export class Game extends Phaser.Scene {
   }
 
   _updateSabotageHUD() {
+    const isComms = this._activeSabotage?.type === 'comms_disruption'
+    const wasComms = this._commsDisrupted
+
     if (!this._activeSabotage) {
       this._sabotageWarning.setText('')
+      this._sabotageTimer.setText('')
+      // Restore comms
+      if (wasComms) {
+        this._commsDisrupted = false
+        this._taskListText.setVisible(true)
+        this._commsOverlay.setAlpha(0)
+        this._commsText.setAlpha(0)
+      }
+      this._updateSabotageFixPanels()
       return
     }
+
     const messages = {
-      lights_out: '⚠ LIGHTS OUT — Fix at Storage!',
-      reactor_meltdown: '⚠⚠ REACTOR MELTDOWN — 2 players fix Reactor!',
-      comms_disruption: '⚠ COMMS DOWN — Fix at Bridge!',
+      lights_out:       '! LIGHTS OUT - Fix at Storage',
+      reactor_meltdown: '!! REACTOR MELTDOWN - 2 players at Reactor',
+      comms_disruption: '! COMMS DOWN - Fix at Bridge',
     }
-    this._sabotageWarning.setText(messages[this._activeSabotage.type] || '⚠ SABOTAGE!')
+    this._sabotageWarning.setText(messages[this._activeSabotage.type] || '! SABOTAGE')
+
+    // Show countdown timer for critical (reactor) sabotages
+    if (this._activeSabotage.remaining != null) {
+      const secs = Math.ceil(this._activeSabotage.remaining / 1000)
+      if (this._activeSabotage.type === 'reactor_meltdown') {
+        this._sabotageTimer.setText(`${secs}s`)
+        this._sabotageTimer.setColor(secs <= 10 ? '#ff0000' : PALETTE.dangerStr)
+      } else {
+        this._sabotageTimer.setText('')
+      }
+    }
+
+    // Comms disruption: hide task list
+    if (isComms && !wasComms) {
+      this._commsDisrupted = true
+      this._taskListText.setVisible(false)
+      this._commsOverlay.setAlpha(0.18)
+      this._commsText.setAlpha(0.7)
+    } else if (!isComms && wasComms) {
+      this._commsDisrupted = false
+      this._taskListText.setVisible(true)
+      this._commsOverlay.setAlpha(0)
+      this._commsText.setAlpha(0)
+    }
+
+    this._updateSabotageFixPanels()
   }
 
   // ─── Body sprites ─────────────────────────────────────────────────────────────
@@ -776,6 +1019,39 @@ export class Game extends Phaser.Scene {
         }
       }
     }
+
+    // Sabotage fix locations (crewmates only when sabotage active)
+    this._nearbySabotageFixId = null
+    if (this._activeSabotage && this._myAlive && this._role !== 'gremlin') {
+      const sabType = this._activeSabotage.type
+      if (sabType === 'lights_out') {
+        const loc = SABOTAGE_FIX_LOCATIONS.lights_out
+        if (Math.hypot(mx - loc.x, my - loc.y) <= 30) {
+          this._nearbySabotageFixId = sabType
+        }
+      } else if (sabType === 'comms_disruption') {
+        const loc = SABOTAGE_FIX_LOCATIONS.comms_disruption
+        if (Math.hypot(mx - loc.x, my - loc.y) <= 30) {
+          this._nearbySabotageFixId = sabType
+        }
+      } else if (sabType === 'reactor_meltdown') {
+        const locA = SABOTAGE_FIX_LOCATIONS.reactor_meltdown_a
+        const locB = SABOTAGE_FIX_LOCATIONS.reactor_meltdown_b
+        if (Math.hypot(mx - locA.x, my - locA.y) <= 30 ||
+            Math.hypot(mx - locB.x, my - locB.y) <= 30) {
+          this._nearbySabotageFixId = sabType
+          // Auto-show reactor hold panel when nearby
+          if (!this._reactorHoldPanel) this._showReactorHoldButtons()
+        } else if (this._reactorHoldPanel) {
+          // Walked away — hide and release
+          this._reactorHolding = false
+          socketClient.releaseReactor()
+          this._hideReactorHoldButtons()
+        }
+      }
+    } else if (this._reactorHoldPanel && !this._activeSabotage) {
+      this._hideReactorHoldButtons()
+    }
   }
 
   _getVentPos(ventId) {
@@ -825,30 +1101,28 @@ export class Game extends Phaser.Scene {
     const g = this.add.graphics().setScrollFactor(0).setDepth(CONSTANTS.DEPTH_OVERLAY)
     g.fillStyle(PALETTE.danger, 0.25)
     g.fillRect(0, 0, BASE_W, BASE_H)
-    this.add.text(cx, cy, 'YOU DIED', {
-      fontFamily: 'monospace', fontSize: '18px', color: PALETTE.dangerStr,
-      stroke: '#000000', strokeThickness: 3,
+    uiText(this, cx, cy, 'YOU DIED', 'title', {
+      color: PALETTE.dangerStr,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(CONSTANTS.DEPTH_OVERLAY)
-    this.add.text(cx, cy + 16, 'Complete tasks as a ghost...', {
-      fontFamily: 'monospace', fontSize: '7px', color: PALETTE.textDimStr,
+    uiText(this, cx, cy + 16, 'Complete tasks as a ghost...', 'body', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(CONSTANTS.DEPTH_OVERLAY)
   }
 
   _showHint(msg, color = PALETTE.task) {
     const cx = BASE_W / 2
-    const txt = this.add.text(cx, BASE_H - 24, msg, {
-      fontFamily: 'monospace', fontSize: '7px', color: Phaser.Display.Color.ValueToColor(color).rgba,
-      stroke: '#000000', strokeThickness: 1,
+    const txt = uiText(this, cx, BASE_H - 24, msg, 'label', {
+      color: Phaser.Display.Color.ValueToColor(color).rgba,
+      strokeThickness: 4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(CONSTANTS.DEPTH_HUD)
     this.tweens.add({ targets: txt, alpha: 0, y: txt.y - 10, duration: 2000, onComplete: () => txt.destroy() })
   }
 
   _spawnPopup(x, y, text, color = 0xffff00) {
     const popup = {
-      text: this.add.text(x, y, text, {
-        fontFamily: 'monospace', fontSize: '6px',
+      text: uiText(this, x, y, text, 'small', {
         color: Phaser.Display.Color.ValueToColor(color).rgba,
-        stroke: '#000000', strokeThickness: 1,
+        strokeThickness: 4,
       }).setOrigin(0.5).setDepth(CONSTANTS.DEPTH_PLAYERS + 2),
       life: 1.2,
       vy: -25,
@@ -925,6 +1199,12 @@ export class Game extends Phaser.Scene {
         entry.nameText.setX(entry.sprite.x)
         entry.nameText.setY(entry.sprite.y - 12)
       }
+      // Ally indicator follows sprite (pulsing)
+      if (entry.allyIndicator) {
+        entry.allyIndicator.setPosition(entry.sprite.x, entry.sprite.y - 20)
+        const pulse = 0.5 + Math.abs(Math.sin(time * 0.004)) * 0.5
+        entry.allyIndicator.setAlpha(pulse)
+      }
       // Ghost: semi-transparent
       if (!entry.data.alive && entry.data.isGhost) {
         entry.sprite.setAlpha(0.4)
@@ -970,8 +1250,15 @@ export class Game extends Phaser.Scene {
 
     // ─── Sabotage timer ────────────────────────────────────────────────────
     if (this._activeSabotage) {
-      const remaining = Math.max(0, this._activeSabotage.remaining - delta)
-      this._activeSabotage.remaining = remaining
+      if (this._activeSabotage.remaining != null) {
+        this._activeSabotage.remaining = Math.max(0, this._activeSabotage.remaining - delta)
+        // Update timer display every ~500ms worth
+        const secs = Math.ceil(this._activeSabotage.remaining / 1000)
+        if (this._activeSabotage.type === 'reactor_meltdown') {
+          this._sabotageTimer.setText(`${secs}s`)
+          this._sabotageTimer.setColor(secs <= 10 ? '#ff0000' : PALETTE.dangerStr)
+        }
+      }
     }
   }
 
@@ -991,6 +1278,7 @@ export class Game extends Phaser.Scene {
     this._unsubs?.forEach(fn => fn())
     if (this._sabotageSoundInterval) clearInterval(this._sabotageSoundInterval)
     if (this._killCooldownTimer) this._killCooldownTimer.remove()
+    if (this._reactorHoldPanel) { this._reactorHoldPanel.destroy(); this._reactorHoldPanel = null }
   }
 
   shutdown() { this._cleanup() }

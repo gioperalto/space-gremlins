@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { PALETTE, CONSTANTS, BASE_W, BASE_H } from '../config.js'
+import { uiText } from '../ui/textStyles.js'
 
 // Task UI manager — opens mini-game overlays for each task type
 export class TaskUI {
@@ -30,8 +31,8 @@ export class TaskUI {
       .setStrokeStyle(2, PALETTE.task)
     this._container.add(bg)
 
-    const title = this.scene.add.text(cx, cy - H / 2 + 10, this._getTaskName(taskId), {
-      fontFamily: 'monospace', fontSize: '8px', color: PALETTE.taskStr,
+    const title = uiText(this.scene, cx, cy - H / 2 + 10, this._getTaskName(taskId), 'heading', {
+      color: PALETTE.taskStr,
     }).setOrigin(0.5)
     this._container.add(title)
 
@@ -39,8 +40,8 @@ export class TaskUI {
     const closeBtn = this.scene.add.rectangle(cx + W / 2 - 8, cy - H / 2 + 8, 14, 10, 0x222222)
       .setStrokeStyle(1, 0x666666).setInteractive({ useHandCursor: true })
       .on('pointerdown', () => this._close(false))
-    const closeTxt = this.scene.add.text(cx + W / 2 - 8, cy - H / 2 + 8, 'X', {
-      fontFamily: 'monospace', fontSize: '7px', color: '#888888',
+    const closeTxt = uiText(this.scene, cx + W / 2 - 8, cy - H / 2 + 8, 'X', 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5)
     this._container.add([closeBtn, closeTxt])
 
@@ -70,8 +71,8 @@ export class TaskUI {
 
   // ─── Swipe Card ────────────────────────────────────────────────────────────
   _drawSwipeCard(cx, cy) {
-    const instr = this.scene.add.text(cx, cy - 28, 'Click at the right time!', {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textDimStr,
+    const instr = uiText(this.scene, cx, cy - 28, 'Click at the right time!', 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5)
     this._container.add(instr)
 
@@ -107,17 +108,17 @@ export class TaskUI {
         const sliderCenter = trackX + pos
         const hit = Math.abs(sliderCenter - zoneX) < zoneW / 2
         if (hit) {
-          this.scene.add.text(cx, cy + 14, 'PERFECT!', { fontFamily: 'monospace', fontSize: '8px', color: '#00ff88' }).setOrigin(0.5)
+          this._container.add(uiText(this.scene, cx, cy + 14, 'PERFECT!', 'body', { color: '#00ff88' }).setOrigin(0.5))
           this.scene.time.delayedCall(800, () => this._close(true))
         } else {
-          this.scene.add.text(cx, cy + 14, 'MISS!', { fontFamily: 'monospace', fontSize: '8px', color: PALETTE.dangerStr }).setOrigin(0.5)
+          this._container.add(uiText(this.scene, cx, cy + 14, 'MISS!', 'body', { color: PALETTE.dangerStr }).setOrigin(0.5))
           this.scene.time.delayedCall(600, () => {
             pos = 0; dir = 1
             tick.reset({ delay: 16, loop: true, callback: tick.callback })
           })
         }
       })
-    const btnTxt = this.scene.add.text(cx, cy + 28, 'SWIPE!', { fontFamily: 'monospace', fontSize: '7px', color: PALETTE.primaryStr }).setOrigin(0.5)
+    const btnTxt = uiText(this.scene, cx, cy + 28, 'SWIPE!', 'small', { color: PALETTE.primaryStr }).setOrigin(0.5)
     this._container.add([btn, btnTxt])
   }
 
@@ -126,15 +127,15 @@ export class TaskUI {
     const total = 8000
     let elapsed = 0
 
-    const instr = this.scene.add.text(cx, cy - 28, 'Downloading...', {
-      fontFamily: 'monospace', fontSize: '7px', color: PALETTE.textDimStr,
+    const instr = uiText(this.scene, cx, cy - 28, 'Downloading...', 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5)
     this._container.add(instr)
 
     const barW = 120, barH = 10
     const barBg = this.scene.add.rectangle(cx, cy, barW, barH, 0x222233).setStrokeStyle(1, PALETTE.primary)
     const barFill = this.scene.add.rectangle(cx - barW / 2, cy, 0, barH - 2, PALETTE.primary).setOrigin(0, 0.5)
-    const pctText = this.scene.add.text(cx, cy + 14, '0%', { fontFamily: 'monospace', fontSize: '7px', color: PALETTE.primaryStr }).setOrigin(0.5)
+    const pctText = uiText(this.scene, cx, cy + 14, '0%', 'small', { color: PALETTE.primaryStr }).setOrigin(0.5)
     this._container.add([barBg, barFill, pctText])
 
     const tick = this.scene.time.addEvent({ delay: 100, loop: true, callback: () => {
@@ -155,8 +156,8 @@ export class TaskUI {
     const total = 10000
     let elapsed = 0
 
-    this._container.add(this.scene.add.text(cx, cy - 32, 'Stand still for scan...', {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textDimStr,
+    this._container.add(uiText(this.scene, cx, cy - 32, 'Stand still for scan...', 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5))
 
     // Scan lines
@@ -191,8 +192,8 @@ export class TaskUI {
     let connected = 0
     let dragging = null
 
-    this._container.add(this.scene.add.text(cx, cy - 38, 'Connect matching wires!', {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textDimStr,
+    this._container.add(uiText(this.scene, cx, cy - 38, 'Connect matching wires!', 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5))
 
     const leftX = cx - 45, rightX = cx + 45
@@ -242,8 +243,8 @@ export class TaskUI {
     const target = 30 + Math.floor(Math.random() * 50)
     let current = 0
 
-    this._container.add(this.scene.add.text(cx, cy - 38, 'Align power to target!', {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textDimStr,
+    this._container.add(uiText(this.scene, cx, cy - 38, 'Align power to target!', 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5))
 
     const trackW = 120, trackH = 8
@@ -269,11 +270,9 @@ export class TaskUI {
       valueText.setText(`${current}`)
     })
 
-    const valueText = this.scene.add.text(cx, cy + 18, '0', {
-      fontFamily: 'monospace', fontSize: '7px', color: PALETTE.primaryStr,
-    }).setOrigin(0.5)
-    this._container.add(this.scene.add.text(cx, cy + 14, `Target: ${target}`, {
-      fontFamily: 'monospace', fontSize: '6px', color: '#00ff88',
+    const valueText = uiText(this.scene, cx, cy + 18, '0', 'small', { color: PALETTE.primaryStr }).setOrigin(0.5)
+    this._container.add(uiText(this.scene, cx, cy + 14, `Target: ${target}`, 'small', {
+      color: '#00ff88',
     }).setOrigin(0.5))
     this._container.add(valueText)
 
@@ -287,8 +286,8 @@ export class TaskUI {
           this.scene.time.delayedCall(400, () => valueText.setColor(PALETTE.primaryStr))
         }
       })
-    this._container.add([confirmBtn, this.scene.add.text(cx, cy + 32, 'CONFIRM', {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.primaryStr,
+    this._container.add([confirmBtn, uiText(this.scene, cx, cy + 32, 'CONFIRM', 'small', {
+      color: PALETTE.primaryStr,
     }).setOrigin(0.5)])
   }
 
@@ -301,8 +300,8 @@ export class TaskUI {
 
     let playerSeq = [], playingSeq = false, step = 0
 
-    this._container.add(this.scene.add.text(cx, cy - 38, 'Repeat the sequence!', {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textDimStr,
+    this._container.add(uiText(this.scene, cx, cy - 38, 'Repeat the sequence!', 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5))
 
     // Node positions (circle layout)
@@ -316,8 +315,8 @@ export class TaskUI {
       return node
     })
 
-    const statusText = this.scene.add.text(cx, cy + 38, 'Watch...', {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textDimStr,
+    const statusText = uiText(this.scene, cx, cy + 38, 'Watch...', 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5)
     this._container.add(statusText)
 
@@ -362,23 +361,23 @@ export class TaskUI {
   _drawFuelTransfer(cx, cy, taskId) {
     const isPartA = taskId === 'fuel_transfer_a'
     const label = isPartA ? 'Fill the canister (hold button)' : 'Empty canister into engine'
-    this._container.add(this.scene.add.text(cx, cy - 32, label, {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textDimStr,
+    this._container.add(uiText(this.scene, cx, cy - 32, label, 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5))
 
     let filling = false, progress = 0
 
     const canisterBg = this.scene.add.rectangle(cx, cy, 20, 40, 0x111133).setStrokeStyle(1, PALETTE.primary)
     const canisterFill = this.scene.add.rectangle(cx, cy + 20, 18, 0, isPartA ? PALETTE.primary : 0xff8800).setOrigin(0.5, 1)
-    const pctText = this.scene.add.text(cx, cy + 26, '0%', {
-      fontFamily: 'monospace', fontSize: '5px', color: PALETTE.textStr,
+    const pctText = uiText(this.scene, cx, cy + 26, '0%', 'tiny', {
+      color: PALETTE.textStr,
     }).setOrigin(0.5)
     this._container.add([canisterBg, canisterFill, pctText])
 
     const btn = this.scene.add.rectangle(cx, cy + 44, 70, 14, 0x001133).setStrokeStyle(1, PALETTE.primary)
       .setInteractive({ useHandCursor: true })
-    const btnTxt = this.scene.add.text(cx, cy + 44, 'HOLD TO FILL', {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.primaryStr,
+    const btnTxt = uiText(this.scene, cx, cy + 44, 'HOLD TO FILL', 'small', {
+      color: PALETTE.primaryStr,
     }).setOrigin(0.5)
     this._container.add([btn, btnTxt])
 
@@ -412,8 +411,8 @@ export class TaskUI {
       })
     }
 
-    this._container.add(this.scene.add.text(cx, cy - 38, 'Tap waypoints in order!', {
-      fontFamily: 'monospace', fontSize: '6px', color: PALETTE.textDimStr,
+    this._container.add(uiText(this.scene, cx, cy - 38, 'Tap waypoints in order!', 'small', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5))
 
     let next = 0
@@ -437,8 +436,8 @@ export class TaskUI {
           if (next >= waypoints.length) this.scene.time.delayedCall(400, () => this._close(true))
         })
       this._container.add(c)
-      this._container.add(this.scene.add.text(wp.x, wp.y, `${i + 1}`, {
-        fontFamily: 'monospace', fontSize: '5px', color: PALETTE.textDimStr,
+      this._container.add(uiText(this.scene, wp.x, wp.y, `${i + 1}`, 'tiny', {
+        color: PALETTE.textDimStr,
       }).setOrigin(0.5))
       return c
     })
@@ -446,8 +445,8 @@ export class TaskUI {
 
   // ─── Generic fallback ─────────────────────────────────────────────────────
   _drawGenericTask(cx, cy, taskId) {
-    this._container.add(this.scene.add.text(cx, cy, 'Working...', {
-      fontFamily: 'monospace', fontSize: '9px', color: PALETTE.textDimStr,
+    this._container.add(uiText(this.scene, cx, cy, 'Working...', 'body', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5))
 
     this.scene.time.delayedCall(2000, () => this._close(true))

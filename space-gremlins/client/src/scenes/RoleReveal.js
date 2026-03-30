@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { PALETTE, BASE_W, BASE_H } from '../config.js'
 import { soundManager } from '../audio/SoundManager.js'
+import { uiText } from '../ui/textStyles.js'
 
 export class RoleReveal extends Phaser.Scene {
   constructor() { super('RoleReveal') }
@@ -29,28 +30,32 @@ export class RoleReveal extends Phaser.Scene {
         .setAlpha(0.2 + Math.random() * 0.5)
     }
 
-    const revealTitle = this.add.text(cx, cy - 35, 'YOU ARE...', {
-      fontFamily: 'monospace', fontSize: '10px', color: PALETTE.textDimStr,
+    const revealTitle = uiText(this, cx, cy - 35, 'YOU ARE...', 'heading', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5).setAlpha(0)
 
-    const roleName = this.add.text(cx, cy - 10, this._role.toUpperCase(), {
-      fontFamily: 'monospace', fontSize: '28px', color: roleColor,
-      stroke: '#000000', strokeThickness: 4,
+    const roleName = uiText(this, cx, cy - 10, this._role.toUpperCase(), 'title', {
+      fontSize: '28px',
+      color: roleColor,
+      strokeThickness: 8,
+      letterSpacing: 1,
     }).setOrigin(0.5).setAlpha(0).setScale(0.5)
 
     const desc = isGremlin
       ? 'Kill and sabotage to win!'
       : 'Complete tasks and vote out Gremlins!'
 
-    const descText = this.add.text(cx, cy + 18, desc, {
-      fontFamily: 'monospace', fontSize: '7px', color: PALETTE.textDimStr,
+    const descText = uiText(this, cx, cy + 18, desc, 'body', {
+      color: PALETTE.textDimStr,
     }).setOrigin(0.5).setAlpha(0)
 
-    // Gremlin ally reveal
+    // Gremlin ally reveal — allies are { socketId, name, color } objects
     if (isGremlin && this._gremlinAllies.length > 0) {
-      this.add.text(cx, cy + 32, `Ally: ${this._gremlinAllies.join(', ')}`, {
-        fontFamily: 'monospace', fontSize: '7px', color: PALETTE.dangerStr,
-      }).setOrigin(0.5).setAlpha(0).setData('fadeIn', true)
+      const allyNames = this._gremlinAllies.map(a => (typeof a === 'object' ? a.name : a)).join(', ')
+      const allyText = uiText(this, cx, cy + 32, `Ally: ${allyNames}`, 'body', {
+        color: PALETTE.dangerStr,
+      }).setOrigin(0.5).setAlpha(0)
+      this.tweens.add({ targets: allyText, alpha: 1, duration: 400, delay: 1200 })
     }
 
     // Animate in sequence

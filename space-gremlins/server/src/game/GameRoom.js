@@ -15,6 +15,17 @@ const PHASES = {
   GAME_OVER:   'gameOver',
 }
 
+// Vent positions (must match client config.js VENTS)
+const VENT_POSITIONS = {
+  vent_a1: { x: 280, y: 270, exitTo: 'vent_a2' },
+  vent_a2: { x: 90,  y: 200, exitTo: 'vent_a1' },
+  vent_b1: { x: 520, y: 195, exitTo: 'vent_b2' },
+  vent_b2: { x: 220, y: 340, exitTo: 'vent_b1' },
+  vent_c1: { x: 370, y: 80,  exitTo: 'vent_c2' },
+  vent_c2: { x: 430, y: 240, exitTo: 'vent_c1' },
+}
+const VENT_INTERACT_RANGE = 30  // px
+
 // Spawn positions per room (world coordinates 640x360)
 const SPAWN_POSITIONS = [
   { x: 200, y: 260 }, { x: 220, y: 260 }, { x: 240, y: 260 }, { x: 200, y: 280 },
@@ -26,6 +37,15 @@ const MAX_SPEED_PER_TICK = 160
 
 // Kill range (px)
 const KILL_RANGE = 40
+
+// Sabotage fix locations (must match client config.js)
+const SABOTAGE_FIX_LOCATIONS = {
+  lights_out:         { x: 460, y: 265 },
+  comms_disruption:   { x: 290, y: 60  },
+  reactor_meltdown_a: { x: 510, y: 165 },
+  reactor_meltdown_b: { x: 560, y: 165 },
+}
+const SABOTAGE_FIX_RANGE = 40  // px, must be within this distance of the fix panel
 
 class GameRoom {
   constructor({ code, hostSocketId, io, settings = {} }) {
@@ -87,9 +107,23 @@ class GameRoom {
         this._broadcast('room:host_changed', { hostSocketId: this.hostSocketId })
       }
     } else {
-      // Mid-game: mark as disconnected, allow rejoin for 30s
+      // Mid-game: mark as disconnected, allow rejoin for 30s then remove
       player.disconnectedAt = Date.now()
       this._broadcast('room:player_disconnected', { socketId, name: player.name })
+      // Schedule auto-remove after 30 seconds
+      setTimeout(() => {
+        const p = this.players.get(socketId)
+        if (p && p.disconnectedAt) {
+          this.players.delete(socketId)
+          this._broadcast('room:player_removed', { socketId, name: p.name, reason: 'timeout' })
+          log('info', 'player_removed_timeout', { room: this.code, socketId })
+          // Check if game should end due to too few players
+          const alive = [...this.players.values()].filter(pl => pl.alive)
+          if (alive.length < 2 && this.phase !== PHASES.GAME_OVER && this.phase !== PHASES.LOBBY) {
+            this._endGame('crewmate', 'insufficient_players')
+          }
+        }
+      }, 30000)
     }
     log('info', 'player_left', { room: this.code, socketId })
   }
@@ -146,7 +180,9 @@ class GameRoom {
     // Broadcast role reveal to each player individually
     for (const player of this.players.values()) {
       const gremlinAllies = player.isGremlin()
-        ? [...this.players.values()].filter(p => p.isGremlin() && p.socketId !== player.socketId).map(p => p.socketId)
+        ? [...this.players.values()]
+            .filter(p => p.isGremlin() && p.socketId !== player.socketId)
+            .map(p => ({ socketId: p.socketId, name: p.name, color: p.color }))
         : []
       this.io.to(player.socketId).emit('game:role_reveal', {
         role: player.role,
@@ -407,6 +443,11 @@ class GameRoom {
     if (!player || !player.alive) return { ok: false, reason: 'invalid_player' }
     if (this.phase !== PHASES.TASK) return { ok: false, reason: 'wrong_phase' }
 
+    // Validate that the player is near the correct fix location
+    if (!this._isNearSabotageFixLocation(player, type)) {
+      return { ok: false, reason: 'not_at_fix_location' }
+    }
+
     const result = this.sabotageManager.fix(type, socketId)
     if (result.ok) {
       this._broadcast('sabotage:fixed', { type, fixedBy: socketId })
@@ -414,6 +455,25 @@ class GameRoom {
       this._broadcast('sabotage:fix_progress', { type, holders: result.holders })
     }
     return result
+  }
+
+  _isNearSabotageFixLocation(player, type) {
+    const dist = (loc) => {
+      const dx = player.x - loc.x
+      const dy = player.y - loc.y
+      return Math.sqrt(dx * dx + dy * dy)
+    }
+
+    if (type === 'lights_out') {
+      return dist(SABOTAGE_FIX_LOCATIONS.lights_out) <= SABOTAGE_FIX_RANGE
+    } else if (type === 'comms_disruption') {
+      return dist(SABOTAGE_FIX_LOCATIONS.comms_disruption) <= SABOTAGE_FIX_RANGE
+    } else if (type === 'reactor_meltdown') {
+      // Player must be near either reactor button
+      return dist(SABOTAGE_FIX_LOCATIONS.reactor_meltdown_a) <= SABOTAGE_FIX_RANGE ||
+             dist(SABOTAGE_FIX_LOCATIONS.reactor_meltdown_b) <= SABOTAGE_FIX_RANGE
+    }
+    return false
   }
 
   handleReactorRelease(socketId) {
@@ -425,7 +485,26 @@ class GameRoom {
     if (!player || !player.isGremlin() || !player.alive) return { ok: false, reason: 'not_gremlin' }
     if (this.phase !== PHASES.TASK) return { ok: false, reason: 'wrong_phase' }
 
-    // Server just acknowledges; position update comes from client
+    // Validate player is near the vent they claim to be using
+    const vent = VENT_POSITIONS[ventId]
+    if (vent) {
+      const dx = player.x - vent.x, dy = player.y - vent.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist > VENT_INTERACT_RANGE) {
+        return { ok: false, reason: 'not_near_vent' }
+      }
+    }
+
+    // For exit action, teleport player to destination vent coordinates
+    if (action === 'exit' && vent?.exitTo) {
+      const dest = VENT_POSITIONS[vent.exitTo]
+      if (dest) {
+        player.x = dest.x
+        player.y = dest.y
+        this._broadcast('player:moved', { socketId, x: player.x, y: player.y })
+      }
+    }
+
     this.io.to(socketId).emit('vent:teleport', { ventId, action })
     return { ok: true }
   }

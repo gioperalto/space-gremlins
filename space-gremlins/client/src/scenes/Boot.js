@@ -16,24 +16,42 @@ export class Boot extends Phaser.Scene {
     // ─── Player body textures (one per color) ─────────────────────────────
     for (const col of PLAYER_COLORS) {
       g.clear()
-      // Body (spacesuit shape)
+      const shadow = Phaser.Display.Color.ValueToColor(col.hex).darken(35).color
+      const highlight = Phaser.Display.Color.ValueToColor(col.hex).lighten(12).color
+
+      // Head and ears
       g.fillStyle(col.hex, 1)
-      g.fillRoundedRect(3, 6, 10, 11, 2)   // torso
-      g.fillStyle(col.hex, 0.8)
-      g.fillCircle(8, 5, 5)                  // helmet
+      g.fillTriangle(3, 7, 6, 0, 8, 7)
+      g.fillTriangle(8, 7, 10, 0, 13, 7)
+      g.fillEllipse(8, 8, 10, 9)
 
-      // Visor
-      g.fillStyle(0x88ccff, 0.9)
-      g.fillEllipse(8, 5, 6, 4)
+      // Eyes and grin
+      g.fillStyle(0xf6ff8c, 1)
+      g.fillEllipse(6, 8, 2, 3)
+      g.fillEllipse(10, 8, 2, 3)
+      g.fillStyle(0x1b0f0f, 0.95)
+      g.fillRect(5, 11, 6, 1)
+      g.fillRect(6, 12, 4, 1)
 
-      // Backpack
-      g.fillStyle(Phaser.Display.Color.ValueToColor(col.hex).darken(30).color, 1)
-      g.fillRect(11, 7, 4, 6)
+      // Body with hunched shoulders
+      g.fillStyle(col.hex, 1)
+      g.fillRoundedRect(3, 11, 10, 7, 3)
+      g.fillStyle(highlight, 0.55)
+      g.fillEllipse(7, 13, 5, 3)
+
+      // Arms and claws
+      g.fillStyle(shadow, 1)
+      g.fillRect(1, 12, 2, 5)
+      g.fillRect(13, 12, 2, 5)
+      g.fillTriangle(0, 17, 2, 15, 2, 18)
+      g.fillTriangle(16, 17, 14, 15, 14, 18)
 
       // Legs
-      g.fillStyle(col.hex, 1)
-      g.fillRect(4, 16, 3, 3)
-      g.fillRect(9, 16, 3, 3)
+      g.fillStyle(shadow, 1)
+      g.fillRect(4, 17, 3, 3)
+      g.fillRect(9, 17, 3, 3)
+      g.fillTriangle(3, 20, 5, 18, 7, 20)
+      g.fillTriangle(8, 20, 10, 18, 12, 20)
 
       g.generateTexture(`player_${col.name.toLowerCase()}`, 16, 20)
     }
@@ -41,12 +59,19 @@ export class Boot extends Phaser.Scene {
     // ─── Body (dead player) ───────────────────────────────────────────────
     for (const col of PLAYER_COLORS) {
       g.clear()
-      g.fillStyle(col.hex, 0.8)
-      g.fillEllipse(8, 10, 14, 7)  // flat body
-      g.fillStyle(col.hex, 0.6)
-      g.fillCircle(12, 8, 5)         // helmet sideways
-      g.fillStyle(0x88ccff, 0.5)
-      g.fillEllipse(13, 8, 5, 3)
+      const shadow = Phaser.Display.Color.ValueToColor(col.hex).darken(35).color
+
+      g.fillStyle(shadow, 0.95)
+      g.fillEllipse(9, 10, 14, 8)
+      g.fillStyle(col.hex, 0.9)
+      g.fillEllipse(7, 10, 13, 8)
+      g.fillTriangle(2, 8, 5, 4, 6, 9)
+      g.fillTriangle(10, 8, 12, 4, 14, 9)
+      g.fillStyle(0xf6ff8c, 0.85)
+      g.fillEllipse(6, 10, 2, 2)
+      g.fillEllipse(9, 11, 2, 2)
+      g.fillStyle(0x1b0f0f, 0.8)
+      g.fillRect(11, 8, 4, 2)
       g.generateTexture(`body_${col.name.toLowerCase()}`, 20, 16)
     }
 
